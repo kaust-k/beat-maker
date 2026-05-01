@@ -267,42 +267,49 @@ def main(page: ft.Page) -> None:
     img_overlay = ft.Image(src="", width=grid_w, height=grid_h,
                            fit=ft.BoxFit.FILL, border_radius=4)
 
-    calibrate_btn = ft.ElevatedButton("Calibrate", icon=ft.Icons.CENTER_FOCUS_STRONG)
+    # Text nodes for buttons whose labels change at runtime
+    calibrate_lbl  = ft.Text("Calibrate")
+    play_pause_lbl = ft.Text("Pause")
 
-    def _on_camera_tap(e: ft.TapDownEvent) -> None:
-        if not mapper.calibrating:
+    calibrate_btn = ft.FilledButton(
+        content=calibrate_lbl, icon=ft.Icons.CENTER_FOCUS_STRONG,
+    )
+
+    def _on_camera_tap(e: ft.TapEvent) -> None:
+        if not mapper.calibrating or e.local_position is None:
             return
         # Map rendered image coords → original camera frame coords
-        camera_x = int(e.local_x / current_scale[0])
-        camera_y = int(e.local_y / current_scale[0])
+        camera_x = int(e.local_position.x / current_scale[0])
+        camera_y = int(e.local_position.y / current_scale[0])
         done = mapper.add_click(camera_x, camera_y)
         if done:
-            calibrate_btn.text = "Calibrate"
+            calibrate_lbl.value = "Calibrate"
             calibrate_btn.icon = ft.Icons.CENTER_FOCUS_STRONG
             page.update()
 
     def _on_calibrate(_) -> None:
         mapper.start_calibration()
-        calibrate_btn.text = "Calibrating… (click 4 corners)"
+        calibrate_lbl.value = "Calibrating… (click 4 corners)"
         calibrate_btn.icon = ft.Icons.TOUCH_APP
         page.update()
 
     calibrate_btn.on_click = _on_calibrate
 
-    # File picker (single shared instance)
-    _pending: dict = {}
+    # File picker — async: pick_files() returns selected files directly
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+
     file_labels: list[dict] = [{"h": None, "v": None} for _ in tracks]
 
-    def _pick_sound(row: int, slot: str) -> None:
-        _pending.update({"row": row, "slot": slot})
-        file_picker.pick_files(allowed_extensions=["wav", "mp3"], allow_multiple=False)
-
-    def _on_file_picked(e: ft.FilePickerResultEvent) -> None:
-        if not e.files:
+    async def _pick_sound(row: int, slot: str) -> None:
+        files = await file_picker.pick_files(
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["wav", "mp3"],
+            allow_multiple=False,
+        )
+        if not files or not files[0].path:
             return
-        path = e.files[0].path
-        row  = _pending["row"]
-        slot = _pending["slot"]
+        path = files[0].path
         try:
             audio.load_sounds_for_row(
                 row,
@@ -317,8 +324,10 @@ def main(page: ft.Page) -> None:
             page.snack_bar = ft.SnackBar(ft.Text(str(exc)), open=True)
             page.update()
 
-    file_picker = ft.FilePicker(on_result=_on_file_picked)
-    page.overlay.append(file_picker)
+    def _make_pick_handler(row: int, slot: str):
+        async def handler(_):
+            await _pick_sound(row, slot)
+        return handler
 
     # Build per-track rows
     track_rows = []
@@ -341,20 +350,17 @@ def main(page: ft.Page) -> None:
             width=70,
         )
 
-        r_idx = r  # capture for lambda
         track_rows.append(
             ft.Row([
                 name_chip,
-                ft.ElevatedButton(
-                    "H ♪", on_click=lambda _, i=r_idx: _pick_sound(i, "h"),
-                    style=ft.ButtonStyle(color=ft.Colors.GREEN_300),
-                    height=30,
+                ft.FilledButton(
+                    content=ft.Text("H ♪"), on_click=_make_pick_handler(r, "h"),
+                    color=ft.Colors.GREEN_300, height=30,
                 ),
                 lbl_h,
-                ft.ElevatedButton(
-                    "V ♪", on_click=lambda _, i=r_idx: _pick_sound(i, "v"),
-                    style=ft.ButtonStyle(color=ft.Colors.PURPLE_300),
-                    height=30,
+                ft.FilledButton(
+                    content=ft.Text("V ♪"), on_click=_make_pick_handler(r, "v"),
+                    color=ft.Colors.PURPLE_300, height=30,
                 ),
                 lbl_v,
             ], spacing=6, height=36)
@@ -365,7 +371,6 @@ def main(page: ft.Page) -> None:
         min=20, max=300, value=cfg["tempo_bpm"],
         divisions=280, label="{value} BPM",
         active_color=ft.Colors.AMBER,
-        on_change=lambda e: setattr(sequencer, "bpm", float(e.control.value)),
         expand=True,
     )
     bpm_label = ft.Text(f"{cfg['tempo_bpm']:.0f} BPM", width=80)
@@ -377,18 +382,17 @@ def main(page: ft.Page) -> None:
     tempo_slider.on_change = _on_tempo_change
 
     # Playback controls
-    play_pause_btn = ft.ElevatedButton(
-        "Pause", icon=ft.Icons.PAUSE,
-        on_click=lambda _: _toggle_pause(),
-    )
-    def _toggle_pause():
+    def _toggle_pause(_=None):
         sequencer.paused = not sequencer.paused
-        play_pause_btn.text = "Play" if sequencer.paused else "Pause"
+        play_pause_lbl.value = "Play" if sequencer.paused else "Pause"
         play_pause_btn.icon = ft.Icons.PLAY_ARROW if sequencer.paused else ft.Icons.PAUSE
         page.update()
 
-    reset_btn = ft.ElevatedButton(
-        "Reset", icon=ft.Icons.SKIP_PREVIOUS,
+    play_pause_btn = ft.FilledButton(
+        content=play_pause_lbl, icon=ft.Icons.PAUSE, on_click=_toggle_pause,
+    )
+    reset_btn = ft.FilledButton(
+        content=ft.Text("Reset"), icon=ft.Icons.SKIP_PREVIOUS,
         on_click=lambda _: setattr(sequencer, "current_col", 0),
     )
 
