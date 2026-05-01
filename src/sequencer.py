@@ -1,10 +1,8 @@
 import threading
 import time
 
-import numpy as np
-
 from .audio import AudioPlayer
-from .detector import GridState
+from .detector import EMPTY, GridState
 
 
 class BeatSequencer:
@@ -56,6 +54,7 @@ class BeatSequencer:
             next_tick += self._interval()
 
     def _fire(self, col: int) -> None:
-        snap = self.grid_state.snapshot()
-        for row in np.where(snap[:, col])[0]:
-            self.audio.play(int(row))
+        snap = self.grid_state.snapshot()  # int8 array
+        for row, orientation in enumerate(snap[:, col]):
+            if orientation != EMPTY:
+                self.audio.play(row, int(orientation))

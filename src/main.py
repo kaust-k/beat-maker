@@ -1,11 +1,9 @@
-import os
+import base64
 import queue
 import sys
+import threading
 import warnings
 from pathlib import Path
-
-# Wayland guard: force X11 backend for OpenCV windows on Ubuntu
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 # pygame prints an AVX2 RuntimeWarning on systems where it wasn't compiled with AVX2
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*avx2.*")
@@ -14,26 +12,31 @@ import cv2
 import numpy as np
 import pygame
 import yaml
+import flet as ft
 
 from .audio import AudioPlayer
 from .camera import CameraThread, LinuxCamera
-from .detector import ColorTileDetector, GridState
+from .detector import (
+    EMPTY, HORIZONTAL, VERTICAL,
+    ColorTileDetector, GridState, OrientationTileDetector,
+)
 from .grid import CORNER_ORDER, GridMapper
 from .sequencer import BeatSequencer
 
 CONFIG_PATH = "config.yaml"
-CALIB_PATH = "calibration.json"
-WINDOW_NAME = "Tembo Beat Maker"
+CALIB_PATH  = "calibration.json"
 
-# BGR colors for each track overlay (matches default color order: red/blue/green/yellow/orange/purple)
+# Per-row track colours for color-detector mode (BGR)
 TRACK_COLORS_BGR = [
-    (40, 40, 220),    # kick:   red
-    (200, 80, 40),    # snare:  blue
-    (40, 180, 40),    # hihat:  green
-    (40, 220, 220),   # clap:   yellow
-    (40, 140, 220),   # tom:    orange
-    (200, 40, 200),   # cymbal: purple
+    (40,  40,  220),  # kick:   red
+    (200, 80,  40),   # snare:  blue
+    (40,  180, 40),   # hihat:  green
+    (40,  220, 220),  # clap:   yellow
+    (40,  140, 220),  # tom:    orange
+    (200, 40,  200),  # cymbal: purple
 ]
+HORIZONTAL_COLOR_BGR = (40, 200, 40)   # orientation mode: green for H
+VERTICAL_COLOR_BGR   = (200, 40, 200)  # orientation mode: purple for V
 
 
 def _load_config(path: str) -> dict:
@@ -41,34 +44,52 @@ def _load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _encode_jpeg_b64(frame: np.ndarray) -> str:
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if not ok:
+        return ""
+    return base64.b64encode(buf.tobytes()).decode("ascii")
+
+
 def _draw_grid_overlay(
     warped: np.ndarray,
     grid_state: GridState,
     sequencer: BeatSequencer,
     cell_size: int,
+    track_names: list[str],
+    detector_mode: str,
 ) -> np.ndarray:
     overlay = warped.copy()
     rows, cols = grid_state.rows, grid_state.cols
     snap = grid_state.snapshot()
     cs = cell_size
 
-    # Semi-transparent fill for active cells
+    # Semi-transparent tile fills
     cell_layer = warped.copy()
     for r in range(rows):
-        color = TRACK_COLORS_BGR[r % len(TRACK_COLORS_BGR)]
         for c in range(cols):
-            if snap[r, c]:
-                cv2.rectangle(
-                    cell_layer, (c * cs, r * cs), ((c + 1) * cs, (r + 1) * cs),
-                    color, -1,
-                )
+            orientation = snap[r, c]
+            if orientation == EMPTY:
+                continue
+            if detector_mode == "color":
+                color = TRACK_COLORS_BGR[r % len(TRACK_COLORS_BGR)]
+            elif orientation == HORIZONTAL:
+                color = HORIZONTAL_COLOR_BGR
+            else:
+                color = VERTICAL_COLOR_BGR
+            cv2.rectangle(
+                cell_layer,
+                (c * cs, r * cs), ((c + 1) * cs, (r + 1) * cs),
+                color, -1,
+            )
     cv2.addWeighted(cell_layer, 0.5, overlay, 0.5, 0, overlay)
 
     # Current beat column highlight (yellow, translucent)
     beat_col = sequencer.current_col
     col_layer = overlay.copy()
     cv2.rectangle(
-        col_layer, (beat_col * cs, 0), ((beat_col + 1) * cs, rows * cs),
+        col_layer,
+        (beat_col * cs, 0), ((beat_col + 1) * cs, rows * cs),
         (0, 255, 255), -1,
     )
     cv2.addWeighted(col_layer, 0.35, overlay, 0.65, 0, overlay)
@@ -79,11 +100,11 @@ def _draw_grid_overlay(
     for r in range(rows + 1):
         cv2.line(overlay, (0, r * cs), (cols * cs, r * cs), (80, 80, 80), 1)
 
-    # Row labels (instrument names — shown as row index for now)
-    for r in range(rows):
+    # Row track labels
+    for r, name in enumerate(track_names):
         cv2.putText(
-            overlay, str(r), (4, r * cs + cs // 2 + 5),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1,
+            overlay, name[:4], (4, r * cs + cs // 2 + 5),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (220, 220, 220), 1,
         )
 
     return overlay
@@ -97,169 +118,333 @@ def _draw_calibration_overlay(frame: np.ndarray, mapper: GridMapper) -> np.ndarr
             out, CORNER_ORDER[i], (cx + 8, cy - 8),
             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
         )
-    next_name = mapper.next_corner_name()
     cv2.putText(
-        out, f"Click: {next_name}  ({len(mapper.click_buffer)}/4)",
+        out, f"Click: {mapper.next_corner_name()}  ({len(mapper.click_buffer)}/4)",
         (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2,
     )
     return out
 
 
-def _draw_hud(frame: np.ndarray, sequencer: BeatSequencer) -> None:
-    if sequencer.paused:
-        label = "PAUSED"
-        color = (100, 100, 255)
-    else:
-        label = f"{sequencer.bpm:.0f} BPM"
-        color = (255, 255, 0)
-    cv2.putText(
-        frame, label, (10, frame.shape[0] - 12),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2,
-    )
-    # Controls hint
-    cv2.putText(
-        frame, "q:quit  c:calibrate  +/-:tempo  space:pause  r:reset",
-        (10, frame.shape[0] - 38), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1,
-    )
+def _processing_loop(
+    cam_thread: CameraThread,
+    mapper: GridMapper,
+    detector,
+    grid_state: GridState,
+    sequencer: BeatSequencer,
+    cell_size: int,
+    grid_h: int,
+    grid_w: int,
+    img_raw: ft.Image,
+    img_overlay: ft.Image,
+    page: ft.Page,
+    stop_event: threading.Event,
+    current_scale: list,  # [float] mutable container for calibration coord mapping
+    detector_mode: str,
+    track_names: list[str],
+) -> None:
+    last_frame = None
+
+    while not stop_event.is_set():
+        try:
+            frame = cam_thread.frame_queue.get(timeout=0.033)
+            last_frame = frame
+        except queue.Empty:
+            frame = last_frame
+
+        if frame is None:
+            continue
+
+        # Scale raw frame to grid height for display
+        scale = grid_h / frame.shape[0]
+        current_scale[0] = scale
+        raw_w_px = int(frame.shape[1] * scale)
+        raw_resized = cv2.resize(frame, (raw_w_px, grid_h))
+
+        if mapper.calibrating:
+            left = _draw_calibration_overlay(raw_resized, mapper)
+            right = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
+            cv2.putText(right, "Calibrating...", (10, grid_h // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 1)
+        elif mapper.is_calibrated:
+            warped = mapper.warp(frame)
+            orientations, areas = detector.detect(warped)
+            grid_state.update(orientations, areas)
+            right = _draw_grid_overlay(
+                warped, grid_state, sequencer, cell_size,
+                track_names, detector_mode,
+            )
+            left = raw_resized.copy()
+        else:
+            left = raw_resized.copy()
+            cv2.putText(left, "Click 'Calibrate' to start",
+                        (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            right = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
+
+        img_raw.src_base64 = _encode_jpeg_b64(left)
+        img_overlay.src_base64 = _encode_jpeg_b64(right)
+        try:
+            page.update()
+        except Exception:
+            break  # page closed
 
 
-def run() -> None:
+def main(page: ft.Page) -> None:
     cfg_path = Path(CONFIG_PATH)
     if not cfg_path.exists():
-        print(f"ERROR: {CONFIG_PATH} not found. Run from the project root directory.")
-        sys.exit(1)
+        print(f"ERROR: {CONFIG_PATH} not found. Run from the project root.")
+        return
 
     cfg = _load_config(CONFIG_PATH)
-    rows = cfg["grid"]["rows"]
-    cols = cfg["grid"]["cols"]
+    rows      = cfg["grid"]["rows"]
+    cols      = cfg["grid"]["cols"]
     cell_size = cfg["display"]["cell_size"]
-    tracks = cfg["sounds"]["tracks"]
-    color_defs = cfg["colors"]
+    tracks    = cfg["sounds"]["tracks"]
+    det_mode  = cfg.get("detector", "orientation")
+    det_cfg   = cfg["detection"]
+    track_names = [t["name"] for t in tracks]
 
-    # Audio — must pre-init mixer before pygame.init()
+    grid_h = rows * cell_size
+    grid_w = cols * cell_size
+
+    # Audio
     pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
     pygame.mixer.set_num_channels(16)
-
     audio = AudioPlayer(tracks, cfg["sounds"]["dir"])
     audio.load_all()
-    print(f"Loaded {len(tracks)} instrument sounds.")
 
+    # Grid state and detector
     grid_state = GridState(
         rows, cols,
-        tile_threshold=cfg["detection"]["tile_threshold"],
-        empty_threshold=cfg["detection"]["empty_threshold"],
+        tile_threshold=det_cfg["tile_threshold"],
+        empty_threshold=det_cfg["empty_threshold"],
     )
-    detector = ColorTileDetector(tracks, color_defs, rows, cols, cell_size)
+    if det_mode == "color":
+        detector = ColorTileDetector(
+            tracks, cfg["colors"], rows, cols, cell_size,
+            tile_threshold=det_cfg["tile_threshold"],
+        )
+    else:
+        detector = OrientationTileDetector(
+            rows, cols, cell_size,
+            sat_threshold=det_cfg.get("sat_threshold", 40),
+            min_area_ratio=det_cfg.get("min_area_ratio", 0.10),
+            h_ratio_threshold=det_cfg.get("h_ratio_threshold", 1.25),
+            v_ratio_threshold=det_cfg.get("v_ratio_threshold", 0.80),
+        )
 
+    # Camera
     camera = LinuxCamera(cfg["camera_id"])
     if not camera.open():
         print(f"ERROR: Cannot open camera {cfg['camera_id']}.")
         pygame.quit()
-        sys.exit(1)
+        return
     cam_thread = CameraThread(camera)
     cam_thread.start()
 
+    # Grid mapper / calibration
     mapper = GridMapper(rows, cols, cell_size, CALIB_PATH)
     if mapper.load():
-        print("Calibration loaded from calibration.json.")
+        print("Calibration loaded.")
     else:
-        print("No calibration found. Press 'c' to calibrate.")
+        print("No calibration. Click 'Calibrate'.")
 
+    # Sequencer
     sequencer = BeatSequencer(grid_state, audio, cols, cfg["tempo_bpm"])
     sequencer.start()
 
-    cv2.namedWindow(WINDOW_NAME)
+    # Shared state for processing thread ↔ calibration click handler
+    current_scale: list = [1.0]
+    stop_event = threading.Event()
 
-    # State shared with mouse callback
-    cb_state = {"mapper": mapper}
+    # --- Flet UI controls ---
+    page.title = f"Tembo Beat Maker [{det_mode} mode]"
+    page.padding = 10
+    page.spacing = 8
 
-    def mouse_callback(event, x, y, flags, param):
-        m: GridMapper = param["mapper"]
-        if event == cv2.EVENT_LBUTTONDOWN and m.calibrating:
-            # Only accept clicks on the LEFT (raw camera) panel
-            if x < param.get("raw_panel_w", 99999):
-                done = m.add_click(x, y)
-                if done:
-                    print("Calibration complete and saved.")
+    img_raw     = ft.Image(width=int(grid_h * 4 / 3), height=grid_h,
+                           fit=ft.BoxFit.FILL, border_radius=4)
+    img_overlay = ft.Image(width=grid_w, height=grid_h,
+                           fit=ft.BoxFit.FILL, border_radius=4)
 
-    cv2.setMouseCallback(WINDOW_NAME, mouse_callback, cb_state)
+    calibrate_btn = ft.ElevatedButton("Calibrate", icon=ft.Icons.CENTER_FOCUS_STRONG)
 
-    last_frame: np.ndarray | None = None
-    grid_h = rows * cell_size
-    grid_w = cols * cell_size
+    def _on_camera_tap(e: ft.TapDownEvent) -> None:
+        if not mapper.calibrating:
+            return
+        # Map rendered image coords → original camera frame coords
+        camera_x = int(e.local_x / current_scale[0])
+        camera_y = int(e.local_y / current_scale[0])
+        done = mapper.add_click(camera_x, camera_y)
+        if done:
+            calibrate_btn.text = "Calibrate"
+            calibrate_btn.icon = ft.Icons.CENTER_FOCUS_STRONG
+            page.update()
 
-    try:
-        while True:
-            # Get freshest frame (non-blocking; fall back to last known)
-            try:
-                frame = cam_thread.frame_queue.get_nowait()
-                last_frame = frame
-            except queue.Empty:
-                frame = last_frame
+    def _on_calibrate(_) -> None:
+        mapper.start_calibration()
+        calibrate_btn.text = "Calibrating… (click 4 corners)"
+        calibrate_btn.icon = ft.Icons.TOUCH_APP
+        page.update()
 
-            if frame is None:
-                key = cv2.waitKey(10) & 0xFF
-            else:
-                # Scale raw frame to match grid height for side-by-side display
-                scale = grid_h / frame.shape[0]
-                raw_w = int(frame.shape[1] * scale)
-                raw_resized = cv2.resize(frame, (raw_w, grid_h))
-                cb_state["raw_panel_w"] = raw_w
+    calibrate_btn.on_click = _on_calibrate
 
-                if mapper.calibrating:
-                    left_panel = _draw_calibration_overlay(raw_resized, mapper)
-                    right_panel = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
-                    cv2.putText(
-                        right_panel, "Calibrating...",
-                        (10, grid_h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
-                        (255, 255, 255), 1,
-                    )
-                elif mapper.is_calibrated:
-                    warped = mapper.warp(frame)
-                    coverage = detector.detect(warped)
-                    grid_state.update(coverage)
-                    right_panel = _draw_grid_overlay(warped, grid_state, sequencer, cell_size)
-                    left_panel = raw_resized.copy()
-                else:
-                    left_panel = raw_resized.copy()
-                    cv2.putText(
-                        left_panel, "Press 'c' to calibrate",
-                        (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2,
-                    )
-                    right_panel = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
+    # File picker (single shared instance)
+    _pending: dict = {}
+    file_labels: list[dict] = [{"h": None, "v": None} for _ in tracks]
 
-                _draw_hud(left_panel, sequencer)
-                combined = np.hstack([left_panel, right_panel])
-                cv2.imshow(WINDOW_NAME, combined)
-                key = cv2.waitKey(1) & 0xFF
+    def _pick_sound(row: int, slot: str) -> None:
+        _pending.update({"row": row, "slot": slot})
+        file_picker.pick_files(allowed_extensions=["wav", "mp3"], allow_multiple=False)
 
-            if key == ord("q"):
-                break
-            elif key == ord("c"):
-                mapper.start_calibration()
-                print("Calibration started. Click top-left corner first.")
-            elif key in (ord("+"), ord("=")):
-                sequencer.bpm = min(sequencer.bpm + 5, 300)
-                print(f"Tempo: {sequencer.bpm:.0f} BPM")
-            elif key == ord("-"):
-                sequencer.bpm = max(sequencer.bpm - 5, 20)
-                print(f"Tempo: {sequencer.bpm:.0f} BPM")
-            elif key == ord(" "):
-                sequencer.paused = not sequencer.paused
-                print("Paused." if sequencer.paused else "Playing.")
-            elif key == ord("r"):
-                sequencer.current_col = 0
-                print("Beat reset to column 0.")
+    def _on_file_picked(e: ft.FilePickerResultEvent) -> None:
+        if not e.files:
+            return
+        path = e.files[0].path
+        row  = _pending["row"]
+        slot = _pending["slot"]
+        try:
+            audio.load_sounds_for_row(
+                row,
+                path_h=path if slot == "h" else None,
+                path_v=path if slot == "v" else None,
+            )
+            lbl: ft.Text = file_labels[row][slot]
+            if lbl:
+                lbl.value = Path(path).name
+                page.update()
+        except RuntimeError as exc:
+            page.snack_bar = ft.SnackBar(ft.Text(str(exc)), open=True)
+            page.update()
 
-    finally:
+    file_picker = ft.FilePicker(on_result=_on_file_picked)
+    page.overlay.append(file_picker)
+
+    # Build per-track rows
+    track_rows = []
+    for r, track in enumerate(tracks):
+        lbl_h = ft.Text("(synth)", size=11, color=ft.Colors.GREY_400, width=130,
+                         overflow=ft.TextOverflow.ELLIPSIS)
+        lbl_v = ft.Text("(accent)", size=11, color=ft.Colors.GREY_400, width=130,
+                         overflow=ft.TextOverflow.ELLIPSIS)
+        file_labels[r]["h"] = lbl_h
+        file_labels[r]["v"] = lbl_v
+
+        track_color = (
+            ft.Colors.GREY_700 if det_mode == "orientation"
+            else ["red", "blue", "green", "yellow", "orange", "purple"][r % 6]
+        )
+        name_chip = ft.Container(
+            content=ft.Text(track["name"].upper(), size=11, weight=ft.FontWeight.BOLD),
+            bgcolor=track_color, border_radius=4,
+            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+            width=70,
+        )
+
+        r_idx = r  # capture for lambda
+        track_rows.append(
+            ft.Row([
+                name_chip,
+                ft.ElevatedButton(
+                    "H ♪", on_click=lambda _, i=r_idx: _pick_sound(i, "h"),
+                    style=ft.ButtonStyle(color=ft.Colors.GREEN_300),
+                    height=30,
+                ),
+                lbl_h,
+                ft.ElevatedButton(
+                    "V ♪", on_click=lambda _, i=r_idx: _pick_sound(i, "v"),
+                    style=ft.ButtonStyle(color=ft.Colors.PURPLE_300),
+                    height=30,
+                ),
+                lbl_v,
+            ], spacing=6, height=36)
+        )
+
+    # Tempo slider
+    tempo_slider = ft.Slider(
+        min=20, max=300, value=cfg["tempo_bpm"],
+        divisions=280, label="{value} BPM",
+        active_color=ft.Colors.AMBER,
+        on_change=lambda e: setattr(sequencer, "bpm", float(e.control.value)),
+        expand=True,
+    )
+    bpm_label = ft.Text(f"{cfg['tempo_bpm']:.0f} BPM", width=80)
+
+    def _on_tempo_change(e):
+        sequencer.bpm = float(e.control.value)
+        bpm_label.value = f"{sequencer.bpm:.0f} BPM"
+        page.update()
+    tempo_slider.on_change = _on_tempo_change
+
+    # Playback controls
+    play_pause_btn = ft.ElevatedButton(
+        "Pause", icon=ft.Icons.PAUSE,
+        on_click=lambda _: _toggle_pause(),
+    )
+    def _toggle_pause():
+        sequencer.paused = not sequencer.paused
+        play_pause_btn.text = "Play" if sequencer.paused else "Pause"
+        play_pause_btn.icon = ft.Icons.PLAY_ARROW if sequencer.paused else ft.Icons.PAUSE
+        page.update()
+
+    reset_btn = ft.ElevatedButton(
+        "Reset", icon=ft.Icons.SKIP_PREVIOUS,
+        on_click=lambda _: setattr(sequencer, "current_col", 0),
+    )
+
+    mode_badge = ft.Text(
+        f"Mode: {det_mode}", size=11,
+        color=ft.Colors.GREEN_300 if det_mode == "orientation" else ft.Colors.ORANGE_300,
+    )
+
+    # Page layout
+    page.add(
+        ft.Row([
+            ft.GestureDetector(
+                content=img_raw,
+                on_tap_down=_on_camera_tap,
+            ),
+            img_overlay,
+        ], spacing=8),
+        ft.Divider(height=6),
+        ft.Column(track_rows, spacing=2),
+        ft.Divider(height=6),
+        ft.Row([
+            ft.Text("Tempo:", size=13),
+            tempo_slider,
+            bpm_label,
+        ], spacing=10),
+        ft.Row([
+            play_pause_btn,
+            reset_btn,
+            calibrate_btn,
+            mode_badge,
+        ], spacing=10),
+    )
+
+    # Cleanup on window close
+    def _on_close(_):
+        stop_event.set()
         sequencer.stop()
         cam_thread.stop()
         camera.release()
-        cv2.destroyAllWindows()
         pygame.quit()
-        print("Goodbye.")
+
+    page.on_close = _on_close
+
+    # Start processing thread
+    proc_thread = threading.Thread(
+        target=_processing_loop,
+        args=(
+            cam_thread, mapper, detector, grid_state, sequencer,
+            cell_size, grid_h, grid_w,
+            img_raw, img_overlay, page,
+            stop_event, current_scale, det_mode, track_names,
+        ),
+        daemon=True,
+    )
+    proc_thread.start()
 
 
 if __name__ == "__main__":
-    run()
+    ft.app(target=main)

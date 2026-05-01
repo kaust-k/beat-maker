@@ -5,40 +5,53 @@ grid:
 tempo_bpm: 120.0
 camera_id: 1
 
+detector: "orientation"   # "color" | "orientation"
+
 display:
   cell_size: 80  # pixels per cell in warped view
 
 detection:
   tile_threshold: 0.15   # coverage >= this -> tile present
   empty_threshold: 0.05  # coverage <= this -> tile absent
+  # orientation-mode only:
+  sat_threshold: 40        # HSV S-channel minimum to identify any colored tile
+  min_area_ratio: 0.10     # minimum contour area / cell area to count as tile
+  h_ratio_threshold: 1.25  # bounding rect w/h above this -> HORIZONTAL
+  v_ratio_threshold: 0.80  # bounding rect w/h below this -> VERTICAL
 
 sounds:
   dir: assets/sounds
   tracks:
     - name: kick
       color: red
-      file: null   # null = synthesized; set to "kick.wav" to use custom file
+      file_h: null   # null = synthesized; set to filename for custom sound
+      file_v: null   # null = 85% volume variant of file_h
     - name: snare
       color: blue
-      file: null
+      file_h: null
+      file_v: null
     - name: hihat
       color: green
-      file: null
+      file_h: null
+      file_v: null
     - name: clap
       color: yellow
-      file: null
+      file_h: null
+      file_v: null
     - name: tom
       color: orange
-      file: null
+      file_h: null
+      file_v: null
     - name: cymbal
       color: purple
-      file: null
+      file_h: null
+      file_v: null
 
-colors:
+colors:                        # used by color detector mode
   red:
     lower: [0, 100, 100]
     upper: [10, 255, 255]
-  red_wrap:                    # HSV hue wraps: red also lives at H=160-179
+  red_wrap:                    # red wraps around H=0/179 in OpenCV HSV
     lower: [160, 100, 100]
     upper: [179, 255, 255]
   blue:
