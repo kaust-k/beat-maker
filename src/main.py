@@ -180,8 +180,8 @@ def _processing_loop(
                         (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             right = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
 
-        img_raw.src_base64 = _encode_jpeg_b64(left)
-        img_overlay.src_base64 = _encode_jpeg_b64(right)
+        img_raw.src = _encode_jpeg_b64(left)
+        img_overlay.src = _encode_jpeg_b64(right)
         try:
             page.update()
         except Exception:
@@ -262,9 +262,9 @@ def main(page: ft.Page) -> None:
     page.padding = 10
     page.spacing = 8
 
-    img_raw     = ft.Image(width=int(grid_h * 4 / 3), height=grid_h,
+    img_raw     = ft.Image(src="", width=int(grid_h * 4 / 3), height=grid_h,
                            fit=ft.BoxFit.FILL, border_radius=4)
-    img_overlay = ft.Image(width=grid_w, height=grid_h,
+    img_overlay = ft.Image(src="", width=grid_w, height=grid_h,
                            fit=ft.BoxFit.FILL, border_radius=4)
 
     calibrate_btn = ft.ElevatedButton("Calibrate", icon=ft.Icons.CENTER_FOCUS_STRONG)
