@@ -1,0 +1,58 @@
+grid:
+  cols: 8       # beats per measure
+  rows: 6       # instrument tracks (configurable)
+
+tempo_bpm: 120.0
+camera_id: 1
+
+display:
+  cell_size: 80  # pixels per cell in warped view
+
+detection:
+  tile_threshold: 0.15   # coverage >= this -> tile present
+  empty_threshold: 0.05  # coverage <= this -> tile absent
+
+sounds:
+  dir: assets/sounds
+  tracks:
+    - name: kick
+      color: red
+      file: null   # null = synthesized; set to "kick.wav" to use custom file
+    - name: snare
+      color: blue
+      file: null
+    - name: hihat
+      color: green
+      file: null
+    - name: clap
+      color: yellow
+      file: null
+    - name: tom
+      color: orange
+      file: null
+    - name: cymbal
+      color: purple
+      file: null
+
+colors:
+  red:
+    lower: [0, 100, 100]
+    upper: [10, 255, 255]
+  red_wrap:                    # HSV hue wraps: red also lives at H=160-179
+    lower: [160, 100, 100]
+    upper: [179, 255, 255]
+  blue:
+    lower: [100, 80, 80]
+    upper: [130, 255, 255]
+  green:
+    lower: [40, 60, 60]
+    upper: [80, 255, 255]
+  yellow:
+    lower: [20, 100, 100]
+    upper: [35, 255, 255]
+  orange:
+    lower: [10, 100, 100]
+    upper: [20, 255, 255]
+  purple:
+    lower: [130, 60, 60]
+    upper: [160, 255, 255]

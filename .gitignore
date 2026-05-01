@@ -1,0 +1,6 @@
+venv/
+assets/sounds/
+calibration.json
+__pycache__/
+*.pyc
+.DS_Store
