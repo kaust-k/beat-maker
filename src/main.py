@@ -302,13 +302,6 @@ def run() -> None:
             baseline_s=_selector_baseline(),
         )
 
-    detector = _make_beat_detector(profiles[0]["tracks"])
-    track_names = [t["name"] for t in profiles[0]["tracks"]]
-    last_profile_idx = 0
-
-    # Selector strip detector
-    selector_detector = _make_selector_detector()
-
     # Camera
     camera = LinuxCamera(cfg["camera_id"])
     if not camera.open():
@@ -318,12 +311,19 @@ def run() -> None:
     cam_thread = CameraThread(camera)
     cam_thread.start()
 
-    # Grid mapper / calibration
+    # Grid mapper / calibration — must be created before detector factories are called
     mapper = GridMapper(rows, cols, cell_size, CALIB_PATH, selector_rows=selector_rows)
     if mapper.load():
         print("Calibration loaded from calibration.json.")
     else:
         print("No calibration found (or dimensions changed). Press 'c' to calibrate.")
+
+    detector = _make_beat_detector(profiles[0]["tracks"])
+    track_names = [t["name"] for t in profiles[0]["tracks"]]
+    last_profile_idx = 0
+
+    # Selector strip detector
+    selector_detector = _make_selector_detector()
 
     # Cycle-end callback: apply pending profile switch (runs in sequencer thread)
     def on_cycle_end() -> None:
