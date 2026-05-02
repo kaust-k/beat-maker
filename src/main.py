@@ -207,6 +207,7 @@ def _draw_hud(
     det_mode: str,
     profile_name: str,
     pending_name: str | None,
+    bg_ok: bool = False,
 ) -> None:
     h = frame.shape[0]
     if sequencer.paused:
@@ -216,9 +217,10 @@ def _draw_hud(
         status = f"{sequencer.bpm:.0f} BPM"
         color  = (255, 255, 0)
     pending_str = f" →{pending_name}" if pending_name else ""
-    cv2.putText(frame, f"[{det_mode}] {profile_name}{pending_str}  {status}",
+    bg_str = "BG:ok" if bg_ok else "BG:--"
+    cv2.putText(frame, f"[{det_mode}] {profile_name}{pending_str}  {status}  {bg_str}",
                 (10, h - 38), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, "q:quit  c:calibrate  +/-:tempo  space:pause  r:reset",
+    cv2.putText(frame, "q:quit  c:calibrate  b:background  +/-:tempo  space:pause  r:reset",
                 (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
 
 
@@ -264,7 +266,18 @@ def run() -> None:
         rows, cols,
         tile_threshold=det_cfg["tile_threshold"],
         empty_threshold=det_cfg["empty_threshold"],
+        min_present_frames=det_cfg.get("min_present_frames", 3),
+        min_absent_frames=det_cfg.get("min_absent_frames", 2),
     )
+
+    def _beat_baseline() -> np.ndarray | None:
+        """Return the beat-grid rows of the background baseline, or None."""
+        bs = mapper.baseline_s
+        return bs[selector_rows:] if bs is not None else None
+
+    def _selector_baseline() -> np.ndarray | None:
+        bs = mapper.baseline_s
+        return bs[:selector_rows] if bs is not None and selector_rows > 0 else None
 
     def _make_beat_detector(active_tracks: list[dict]):
         if det_mode == "color":
@@ -278,6 +291,15 @@ def run() -> None:
             min_area_ratio=det_cfg.get("min_area_ratio", 0.10),
             h_ratio_threshold=det_cfg.get("h_ratio_threshold", 1.25),
             v_ratio_threshold=det_cfg.get("v_ratio_threshold", 0.80),
+            baseline_s=_beat_baseline(),
+        )
+
+    def _make_selector_detector():
+        return SelectorDetector(
+            len(profiles), cols, cell_size,
+            sat_threshold=det_cfg.get("sat_threshold", 40),
+            min_area_ratio=det_cfg.get("min_area_ratio", 0.10),
+            baseline_s=_selector_baseline(),
         )
 
     detector = _make_beat_detector(profiles[0]["tracks"])
@@ -285,11 +307,7 @@ def run() -> None:
     last_profile_idx = 0
 
     # Selector strip detector
-    selector_detector = SelectorDetector(
-        len(profiles), cols, cell_size,
-        sat_threshold=det_cfg.get("sat_threshold", 40),
-        min_area_ratio=det_cfg.get("min_area_ratio", 0.10),
-    )
+    selector_detector = _make_selector_detector()
 
     # Camera
     camera = LinuxCamera(cfg["camera_id"])
@@ -400,7 +418,8 @@ def run() -> None:
                 active_profile = profiles[profile_manager.active_index]
                 pending_idx = profile_manager.pending_index
                 pending_name = profiles[pending_idx]["name"] if pending_idx is not None else None
-                _draw_hud(left, sequencer, det_mode, active_profile["name"], pending_name)
+                _draw_hud(left, sequencer, det_mode, active_profile["name"], pending_name,
+                          bg_ok=mapper.baseline_s is not None)
                 cv2.imshow(WINDOW_NAME, np.hstack([left, right]))
                 key = cv2.waitKey(1) & 0xFF
 
@@ -422,6 +441,17 @@ def run() -> None:
                 sequencer.current_col = 0
                 sequencer._fire_next = 0
                 print("Beat reset.")
+            elif key == ord("b"):
+                if mapper.is_calibrated:
+                    if last_frame is not None:
+                        mapper.capture_background(last_frame)
+                        detector = _make_beat_detector(profiles[profile_manager.active_index]["tracks"])
+                        selector_detector = _make_selector_detector()
+                        print("Background captured. Detection is now lighting-adaptive.")
+                    else:
+                        print("No frame available yet.")
+                else:
+                    print("Calibrate first ('c'), then capture background ('b').")
 
     finally:
         sequencer.stop()

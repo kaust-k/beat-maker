@@ -29,6 +29,7 @@ class GridMapper:
         self.selector_rows = selector_rows
         self.calib_path = Path(calib_path)
         self._warp_matrix: np.ndarray | None = None
+        self._baseline_s: np.ndarray | None = None   # per-cell mean S, shape (total_rows, cols)
         self._corners: list[tuple[int, int]] = []
         self._click_buffer: list[tuple[int, int]] = []
         self.calibrating: bool = False
@@ -64,6 +65,8 @@ class GridMapper:
                 return False
             self._corners = [tuple(p) for p in data["corners"]]
             self._warp_matrix = np.array(data["warp_matrix"], dtype=np.float64)
+            raw_bg = data.get("baseline_s")
+            self._baseline_s = np.array(raw_bg, dtype=np.float32) if raw_bg is not None else None
             return True
         except Exception:
             return False
@@ -76,6 +79,7 @@ class GridMapper:
             "selector_rows": self.selector_rows,
             "cols": self.cols,
             "cell_size": self.cell_size,
+            "baseline_s": self._baseline_s.tolist() if self._baseline_s is not None else None,
         }
         self.calib_path.write_text(json.dumps(data, indent=2))
 
@@ -101,6 +105,29 @@ class GridMapper:
     def next_corner_name(self) -> str:
         idx = len(self._click_buffer)
         return CORNER_ORDER[idx] if idx < 4 else ""
+
+    @property
+    def baseline_s(self) -> np.ndarray | None:
+        return self._baseline_s
+
+    def capture_background(self, frame: np.ndarray) -> None:
+        """
+        Warp frame (must have NO tiles on paper) and record per-cell mean S-channel
+        as the lighting baseline. Detection will subtract this from each cell's
+        saturation before thresholding, making it invariant to ambient lighting color.
+        Persists in calibration.json.
+        """
+        warped = self.warp(frame)
+        hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
+        cs = self.cell_size
+        total_rows = self.selector_rows + self.rows
+        baseline = np.zeros((total_rows, self.cols), dtype=np.float32)
+        for r in range(total_rows):
+            for c in range(self.cols):
+                cell_s = hsv[r * cs:(r + 1) * cs, c * cs:(c + 1) * cs, 1]
+                baseline[r, c] = float(cell_s.mean())
+        self._baseline_s = baseline
+        self.save()
 
     def warp(self, frame: np.ndarray) -> np.ndarray:
         h = (self.selector_rows + self.rows) * self.cell_size

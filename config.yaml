@@ -13,8 +13,10 @@ display:
 detection:
   tile_threshold: 0.15   # coverage >= this -> tile present
   empty_threshold: 0.05  # coverage <= this -> tile absent
+  min_present_frames: 4  # consecutive frames tile must be detected before being accepted
+  min_absent_frames: 3   # consecutive frames tile must be absent before being cleared
   # orientation-mode only:
-  sat_threshold: 40        # HSV S-channel minimum to identify any colored tile
+  sat_threshold: 40        # HSV S-channel delta above background to identify a tile (after 'b' capture)
   min_area_ratio: 0.10     # minimum contour area / cell area to count as tile
   h_ratio_threshold: 1.25  # bounding rect w/h above this -> HORIZONTAL
   v_ratio_threshold: 0.80  # bounding rect w/h below this -> VERTICAL
@@ -85,7 +87,7 @@ profiles:
         file_h: null
         file_v: null
       - name: clap
-        volume: 0.9
+        volume: 0.95
         color: yellow
         file: clap-room-24.wav
         file_h: null
@@ -97,7 +99,7 @@ profiles:
         file_h: null
         file_v: null
       - name: cymbal
-        volume: 0.8
+        volume: 1.0
         color: purple
         file: SeedShellShaker7.wav
         file_h: null
@@ -119,7 +121,7 @@ profiles:
         file_h: null
         file_v: null
       - name: hihat
-        volume: 0.8
+        volume: 0.85
         color: green
         file: Hats_Zippo.wav
         file_h: null
@@ -137,7 +139,7 @@ profiles:
         file_h: null
         file_v: null
       - name: cymbal
-        volume: 0.8
+        volume: 1.0
         color: purple
         file: freesound_community-percussion-snap-103929.wav
         file_h: null
@@ -159,13 +161,13 @@ profiles:
         file_h: null
         file_v: null
       - name: hihat
-        volume: 0.8
+        volume: 1.0
         color: green
         file: bongo_high_pitch_hit_yT1.wav
         file_h: null
         file_v: null
       - name: clap
-        volume: 0.9
+        volume: 1.0
         color: yellow
         file: clap-corridor-01.wav
         file_h: null
@@ -177,7 +179,7 @@ profiles:
         file_h: null
         file_v: null
       - name: cymbal
-        volume: 0.8
+        volume: 1.0
         color: purple
         file: hardtabla-Open-Na.wav.mp3
         file_h: null
