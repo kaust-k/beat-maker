@@ -1,5 +1,6 @@
 import threading
 import time
+from collections.abc import Callable
 
 from .audio import AudioPlayer
 from .detector import EMPTY, GridState
@@ -11,6 +12,7 @@ class BeatSequencer:
 
     Uses absolute next-tick timestamps (perf_counter) to prevent cumulative drift.
     BPM and paused state are writable from the main thread (GIL-safe primitives).
+    on_cycle_end is called in the sequencer thread each time current_col wraps to 0.
     """
 
     def __init__(
@@ -19,13 +21,16 @@ class BeatSequencer:
         audio: AudioPlayer,
         cols: int,
         bpm: float = 120.0,
+        on_cycle_end: Callable[[], None] | None = None,
     ):
         self.grid_state = grid_state
         self.audio = audio
         self.cols = cols
         self.bpm: float = bpm
         self.paused: bool = False
-        self.current_col: int = 0
+        self.current_col: int = 0   # last fired column — used by display for highlight
+        self._fire_next: int = 0    # next column to fire — internal only
+        self._on_cycle_end = on_cycle_end
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -49,8 +54,11 @@ class BeatSequencer:
             if self._stop.is_set():
                 break
             if not self.paused:
+                self.current_col = self._fire_next          # sync display to what's firing
                 self._fire(self.current_col)
-                self.current_col = (self.current_col + 1) % self.cols
+                self._fire_next = (self.current_col + 1) % self.cols
+                if self._fire_next == 0 and self._on_cycle_end is not None:
+                    self._on_cycle_end()
             next_tick += self._interval()
 
     def _fire(self, col: int) -> None:

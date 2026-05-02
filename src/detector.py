@@ -186,3 +186,57 @@ class OrientationTileDetector:
                     orientations[r, c] = HORIZONTAL  # square tile → treat as horizontal
 
         return orientations, areas
+
+
+class SelectorDetector:
+    """
+    Detects which cell in the profile selector strip (top row of the warped image)
+    has a tile, using HSV saturation thresholding. Position (column) determines
+    the profile index — any colored tile works.
+    """
+
+    def __init__(
+        self,
+        n_profiles: int,
+        cols: int,
+        cell_size: int,
+        sat_threshold: int = 40,
+        min_area_ratio: float = 0.10,
+    ):
+        self.n_profiles = n_profiles
+        self.cols = cols
+        self.cell_size = cell_size
+        self.sat_threshold = sat_threshold
+        self.min_area_ratio = min_area_ratio
+
+    def detect(self, warped_frame: np.ndarray) -> int | None:
+        """
+        Returns the 0-based profile index of the cell with the largest tile,
+        or None if no cell meets the minimum area threshold.
+        Scans columns 0..min(n_profiles, cols)-1 in the first row of the warped frame.
+        """
+        cs = self.cell_size
+        cell_area = float(cs * cs)
+        min_contour_area = self.min_area_ratio * cell_area
+        hsv = cv2.cvtColor(warped_frame, cv2.COLOR_BGR2HSV)
+
+        best_col: int | None = None
+        best_area: float = 0.0
+        n = min(self.n_profiles, self.cols)
+        for c in range(n):
+            s_channel = hsv[0:cs, c * cs:(c + 1) * cs, 1]
+            s_blurred = cv2.GaussianBlur(s_channel, (5, 5), 0)
+            _, mask = cv2.threshold(
+                s_blurred, self.sat_threshold, 255, cv2.THRESH_BINARY
+            )
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            valid = [cnt for cnt in contours if cv2.contourArea(cnt) >= min_contour_area]
+            if valid:
+                area = cv2.contourArea(max(valid, key=cv2.contourArea)) / cell_area
+                if area > best_area:
+                    best_area = area
+                    best_col = c
+
+        return best_col

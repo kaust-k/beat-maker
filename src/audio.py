@@ -23,24 +23,53 @@ def _save_wav(path: Path, stereo_i16: np.ndarray) -> None:
         wf.writeframes(stereo_i16.tobytes())
 
 
-def _load_sound_file(path: Path) -> "pygame.mixer.Sound":
-    """Load a WAV or MP3 file into a pygame Sound. Uses miniaudio for MP3."""
-    if path.suffix.lower() == ".mp3":
-        try:
-            import miniaudio  # type: ignore
-        except ImportError:
-            raise RuntimeError(
-                "miniaudio is not installed. Install it with: pip install miniaudio"
-            )
-        decoded = miniaudio.decode_file(
-            str(path),
-            output_format=miniaudio.SampleFormat.SIGNED16,
-            nchannels=2,
-            sample_rate=SR,
+def _normalize_rms(arr: np.ndarray, target_rms_db: float) -> np.ndarray:
+    """
+    Scale an int16 stereo array so its RMS hits target_rms_db dBFS.
+    Gain is capped so the peak stays at or below -1 dBFS to avoid hard clipping.
+    Returns int16.
+    """
+    f = arr.astype(np.float32) / 32768.0
+    rms = float(np.sqrt(np.mean(f ** 2)))
+    if rms < 1e-9:
+        return arr  # silent sample — leave untouched
+    target_rms = 10.0 ** (target_rms_db / 20.0)
+    gain = target_rms / rms
+    # Cap gain so peak never exceeds -1 dBFS headroom
+    peak = float(np.abs(f).max())
+    headroom = 10.0 ** (-1.0 / 20.0)  # ≈ 0.891
+    if peak * gain > headroom:
+        gain = headroom / peak
+    return (np.clip(f * gain, -1.0, 1.0) * 32767).astype(np.int16)
+
+
+def _load_sound_file(
+    path: Path,
+    normalize: bool = False,
+    target_rms_db: float = -18.0,
+) -> "pygame.mixer.Sound":
+    """
+    Load any audio file (WAV or MP3) into a pygame Sound.
+    Always decodes via miniaudio so that 24-bit / 32-bit / mono / non-44100 Hz files
+    are converted to int16 stereo 44100 Hz before handing off to pygame.
+    If normalize=True, RMS-normalizes the decoded array to target_rms_db dBFS.
+    """
+    try:
+        import miniaudio  # type: ignore
+    except ImportError:
+        raise RuntimeError(
+            "miniaudio is not installed. Install it with: pip install miniaudio"
         )
-        arr = np.frombuffer(decoded.samples, dtype=np.int16).reshape(-1, 2)
-        return pygame.sndarray.make_sound(arr)
-    return pygame.mixer.Sound(str(path))
+    decoded = miniaudio.decode_file(
+        str(path),
+        output_format=miniaudio.SampleFormat.SIGNED16,
+        nchannels=2,
+        sample_rate=SR,
+    )
+    arr = np.frombuffer(decoded.samples, dtype=np.int16).reshape(-1, 2)
+    if normalize:
+        arr = _normalize_rms(arr, target_rms_db)
+    return pygame.sndarray.make_sound(arr)
 
 
 # --- Synthesis functions: each returns float64 mono in [-1, 1] ---
@@ -111,62 +140,84 @@ _SYNTH_FUNCS = {
 
 class AudioPlayer:
     """
-    Loads or synthesizes two sounds per track row:
-      - H sound (file_h): primary hit, played when tile is HORIZONTAL
-      - V sound (file_v): accent hit, played when tile is VERTICAL
-                          Defaults to 85% volume variant of H if not specified.
+    Loads or synthesizes two sounds per track row across multiple profiles.
+
+    Resolution order per track:
+      H sound: file_h → file → synthesize(name)
+      V sound: file_v → file (as accent source) → _make_accent(h_sound)
+
+    All profiles are preloaded at startup via preload_profiles(); switching is O(1).
     """
 
-    def __init__(self, tracks: list[dict], sound_dir: str):
-        self._tracks = tracks
+    def __init__(self, sound_dir: str, normalize: bool = True, target_rms_db: float = -18.0):
         self._sound_dir = Path(sound_dir)
+        self._normalize = normalize
+        self._target_rms_db = target_rms_db
         self._h_sounds: list[pygame.mixer.Sound | None] = []
         self._v_sounds: list[pygame.mixer.Sound | None] = []
+        self._profile_sounds: list[tuple[list, list]] = []
 
-    def load_all(self) -> None:
+    def preload_profiles(self, profiles: list[dict]) -> None:
+        """Load sounds for every profile at startup. Activates profile 0."""
         self._sound_dir.mkdir(parents=True, exist_ok=True)
-        self._h_sounds = []
-        self._v_sounds = []
-        for track in self._tracks:
-            h, v = self._load_track_pair(track)
-            self._h_sounds.append(h)
-            self._v_sounds.append(v)
+        self._profile_sounds = []
+        for profile in profiles:
+            h_list: list[pygame.mixer.Sound | None] = []
+            v_list: list[pygame.mixer.Sound | None] = []
+            for track in profile["tracks"]:
+                h, v = self._load_track_pair(track)
+                h_list.append(h)
+                v_list.append(v)
+            self._profile_sounds.append((h_list, v_list))
+        if self._profile_sounds:
+            self._h_sounds, self._v_sounds = self._profile_sounds[0]
+
+    def switch_profile(self, idx: int) -> None:
+        """O(1) profile switch — no I/O. Safe to call from the sequencer thread."""
+        if 0 <= idx < len(self._profile_sounds):
+            self._h_sounds, self._v_sounds = self._profile_sounds[idx]
 
     def _load_track_pair(
         self, track: dict
     ) -> tuple["pygame.mixer.Sound", "pygame.mixer.Sound"]:
         name = track["name"]
-
-        # --- H sound ---
         file_h = track.get("file_h")
+        file_v = track.get("file_v")
+        file_base = track.get("file")
+
+        # --- H sound: file_h → file → synthesize ---
         if file_h:
-            path_h = self._sound_dir / file_h
-            if path_h.exists():
-                h_sound = _load_sound_file(path_h)
-            else:
-                h_sound = self._synthesize(name)
+            path = self._sound_dir / file_h
+            h_sound = self._load(path) if path.exists() else self._synthesize(name)
+        elif file_base:
+            path = self._sound_dir / file_base
+            h_sound = self._load(path) if path.exists() else self._synthesize(name)
         else:
             h_sound = self._synthesize(name)
 
-        # --- V sound ---
-        file_v = track.get("file_v")
+        # --- V sound: file_v → file (accent) → _make_accent(h_sound) ---
         if file_v:
-            path_v = self._sound_dir / file_v
-            if path_v.exists():
-                v_sound = _load_sound_file(path_v)
-            else:
-                v_sound = self._make_accent(h_sound)
+            path = self._sound_dir / file_v
+            v_sound = self._load(path) if path.exists() else self._make_accent(h_sound)
+        elif file_base:
+            path = self._sound_dir / file_base
+            base_sound = self._load(path) if path.exists() else h_sound
+            v_sound = self._make_accent(base_sound)
         else:
             v_sound = self._make_accent(h_sound)
 
         return h_sound, v_sound
+
+    def _load(self, path: Path) -> "pygame.mixer.Sound":
+        """Load a file through miniaudio with optional RMS normalization."""
+        return _load_sound_file(path, normalize=self._normalize, target_rms_db=self._target_rms_db)
 
     def _synthesize(self, name: str) -> "pygame.mixer.Sound":
         cached = self._sound_dir / f"{name}.wav"
         if not cached.exists():
             synth_fn = _SYNTH_FUNCS.get(name, _synth_kick)
             _save_wav(cached, _to_stereo_int16(synth_fn()))
-        return pygame.mixer.Sound(str(cached))
+        return self._load(cached)
 
     def _make_accent(self, h_sound: "pygame.mixer.Sound") -> "pygame.mixer.Sound":
         """85% volume variant of h_sound for the vertical/accent hit."""
@@ -184,28 +235,6 @@ class AudioPlayer:
             return
         if 0 <= row < len(sounds) and sounds[row] is not None:
             sounds[row].play()
-
-    def load_sounds_for_row(
-        self, row: int, path_h: str | None, path_v: str | None
-    ) -> None:
-        """
-        Replace H and/or V sounds for a row at runtime (called from file picker).
-        Thread-safe under CPython GIL for single list-index assignment.
-        """
-        if not (0 <= row < len(self._tracks)):
-            return
-        track = self._tracks[row]
-        if path_h is not None:
-            p = Path(path_h)
-            track["file_h"] = path_h
-            self._h_sounds[row] = _load_sound_file(p)
-            # Regenerate accent from new h sound if v is not separately specified
-            if not track.get("file_v"):
-                self._v_sounds[row] = self._make_accent(self._h_sounds[row])
-        if path_v is not None:
-            p = Path(path_v)
-            track["file_v"] = path_v
-            self._v_sounds[row] = _load_sound_file(p)
 
     def stop_all(self) -> None:
         pygame.mixer.stop()

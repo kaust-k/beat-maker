@@ -2,7 +2,7 @@ grid:
   cols: 8       # beats per measure
   rows: 6       # instrument tracks (configurable)
 
-tempo_bpm: 120.0
+tempo_bpm: 180.0
 camera_id: 1
 
 detector: "orientation"   # "color" | "orientation"
@@ -19,33 +19,82 @@ detection:
   h_ratio_threshold: 1.25  # bounding rect w/h above this -> HORIZONTAL
   v_ratio_threshold: 0.80  # bounding rect w/h below this -> VERTICAL
 
+selector:
+  rows: 1   # height of profile selector strip (in grid cells), placed above the beat grid
+
+profiles:
+  - name: "Kit A"
+    color_bgr: [40, 40, 220]   # BGR color for selector overlay (red)
+    tracks:
+      - name: kick
+        color: red
+        file: Kick_Fistpump.wav       # fallback if file_h / file_v not set; null = synthesize
+        file_h: null     # null = use 'file' or synthesize
+        file_v: null     # null = use 'file' as accent source or _make_accent(h_sound)
+      - name: snare
+        color: blue
+        file: Snare_Analog.wav
+        file_h: null
+        file_v: null
+      - name: hihat
+        color: green
+        file: Hats_Massamolla.wav
+        file_h: null
+        file_v: null
+      - name: clap
+        color: yellow
+        file: Clap_Liquid.wav
+        file_h: null
+        file_v: null
+      - name: tom
+        color: orange
+        file: Perc_Tambo.wav
+        file_h: null
+        file_v: null
+      - name: cymbal
+        color: purple
+        file: bongo_high_pitch_hit_yT1.wav
+        file_h: null
+        file_v: null
+
+  - name: "Kit B"
+    color_bgr: [40, 220, 40]   # BGR color for selector overlay (green)
+    tracks:
+      - name: kick
+        color: red
+        file: null
+        file_h: null
+        file_v: null
+      - name: snare
+        color: blue
+        file: null
+        file_h: null
+        file_v: null
+      - name: hihat
+        color: green
+        file: null
+        file_h: null
+        file_v: null
+      - name: clap
+        color: yellow
+        file: null
+        file_h: null
+        file_v: null
+      - name: tom
+        color: orange
+        file: null
+        file_h: null
+        file_v: null
+      - name: cymbal
+        color: purple
+        file: null
+        file_h: null
+        file_v: null
+
 sounds:
   dir: assets/sounds
-  tracks:
-    - name: kick
-      color: red
-      file_h: null   # null = synthesized; set to filename for custom sound
-      file_v: null   # null = 85% volume variant of file_h
-    - name: snare
-      color: blue
-      file_h: null
-      file_v: null
-    - name: hihat
-      color: green
-      file_h: null
-      file_v: null
-    - name: clap
-      color: yellow
-      file_h: null
-      file_v: null
-    - name: tom
-      color: orange
-      file_h: null
-      file_v: null
-    - name: cymbal
-      color: purple
-      file_h: null
-      file_v: null
+  normalize: false       # RMS-normalize all samples at load time
+  target_rms_db: -18.0  # target loudness in dBFS; gain is capped at -1 dBFS peak
 
 colors:                        # used by color detector mode
   red:

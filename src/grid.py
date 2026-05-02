@@ -21,19 +21,21 @@ class GridMapper:
         cols: int,
         cell_size: int,
         calib_path: str = "calibration.json",
+        selector_rows: int = 0,
     ):
         self.rows = rows
         self.cols = cols
         self.cell_size = cell_size
+        self.selector_rows = selector_rows
         self.calib_path = Path(calib_path)
         self._warp_matrix: np.ndarray | None = None
         self._corners: list[tuple[int, int]] = []
         self._click_buffer: list[tuple[int, int]] = []
         self.calibrating: bool = False
 
-        # Destination corners for the perspective transform (bird's-eye)
+        # Destination corners for the full warped area (selector strip + beat grid)
         w = cols * cell_size
-        h = rows * cell_size
+        h = (selector_rows + rows) * cell_size
         self._dst = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
 
     @property
@@ -45,6 +47,21 @@ class GridMapper:
             return False
         try:
             data = json.loads(self.calib_path.read_text())
+            stored_rows = data.get("grid_rows")
+            stored_sel = data.get("selector_rows", 0)
+            stored_cols = data.get("cols")
+            stored_cs = data.get("cell_size")
+            if stored_rows is not None and (
+                stored_rows != self.rows
+                or stored_sel != self.selector_rows
+                or stored_cols != self.cols
+                or stored_cs != self.cell_size
+            ):
+                print(
+                    "Calibration grid dimensions changed — recalibration required. "
+                    "Press 'c' to recalibrate."
+                )
+                return False
             self._corners = [tuple(p) for p in data["corners"]]
             self._warp_matrix = np.array(data["warp_matrix"], dtype=np.float64)
             return True
@@ -55,6 +72,10 @@ class GridMapper:
         data = {
             "corners": [list(p) for p in self._corners],
             "warp_matrix": self._warp_matrix.tolist(),
+            "grid_rows": self.rows,
+            "selector_rows": self.selector_rows,
+            "cols": self.cols,
+            "cell_size": self.cell_size,
         }
         self.calib_path.write_text(json.dumps(data, indent=2))
 
@@ -82,7 +103,7 @@ class GridMapper:
         return CORNER_ORDER[idx] if idx < 4 else ""
 
     def warp(self, frame: np.ndarray) -> np.ndarray:
-        h = self.rows * self.cell_size
+        h = (self.selector_rows + self.rows) * self.cell_size
         w = self.cols * self.cell_size
         return cv2.warpPerspective(frame, self._warp_matrix, (w, h))
 
