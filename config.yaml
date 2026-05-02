@@ -27,31 +27,37 @@ profiles:
     color_bgr: [40, 40, 220]   # BGR color for selector overlay (red)
     tracks:
       - name: kick
+        volume: 1.0      # per-track gain 0.0–1.0; tune this to balance the mix
         color: red
-        file: Kick_Fistpump.wav       # fallback if file_h / file_v not set; null = synthesize
-        file_h: null     # null = use 'file' or synthesize
-        file_v: null     # null = use 'file' as accent source or _make_accent(h_sound)
+        file: Kick_Fistpump.wav
+        file_h: null
+        file_v: null
       - name: snare
+        volume: 1.0
         color: blue
         file: Snare_Analog.wav
         file_h: null
         file_v: null
       - name: hihat
+        volume: 0.8
         color: green
         file: Hats_Massamolla.wav
         file_h: null
         file_v: null
       - name: clap
+        volume: 0.9
         color: yellow
         file: Clap_Liquid.wav
         file_h: null
         file_v: null
       - name: tom
+        volume: 1.0
         color: orange
         file: Perc_Tambo.wav
         file_h: null
         file_v: null
       - name: cymbal
+        volume: 0.8
         color: purple
         file: bongo_high_pitch_hit_yT1.wav
         file_h: null
@@ -61,39 +67,125 @@ profiles:
     color_bgr: [40, 220, 40]   # BGR color for selector overlay (green)
     tracks:
       - name: kick
+        volume: 1.0
         color: red
-        file: null
+        file: Kick_Quake.wav
         file_h: null
         file_v: null
       - name: snare
+        volume: 1.0
         color: blue
-        file: null
+        file: Snare_Piccolo.wav
         file_h: null
         file_v: null
       - name: hihat
+        volume: 0.8
         color: green
-        file: null
+        file: Hats_Sweet.wav
         file_h: null
         file_v: null
       - name: clap
+        volume: 0.9
         color: yellow
-        file: null
+        file: clap-room-24.wav
         file_h: null
         file_v: null
       - name: tom
+        volume: 1.0
         color: orange
-        file: null
+        file: Big-pot-hand.wav.mp3
         file_h: null
         file_v: null
       - name: cymbal
+        volume: 0.8
         color: purple
-        file: null
+        file: SeedShellShaker7.wav
+        file_h: null
+        file_v: null
+
+  - name: "Kit C"
+    color_bgr: [40, 220, 220]
+    tracks:
+      - name: kick
+        volume: 1.0
+        color: red
+        file: min_kick_20_F.wav
+        file_h: null
+        file_v: null
+      - name: snare
+        volume: 1.0
+        color: blue
+        file: Snare_Duotone.wav
+        file_h: null
+        file_v: null
+      - name: hihat
+        volume: 0.8
+        color: green
+        file: Hats_Zippo.wav
+        file_h: null
+        file_v: null
+      - name: clap
+        volume: 0.9
+        color: yellow
+        file: clap-corridor-01.wav
+        file_h: null
+        file_v: null
+      - name: tom
+        volume: 1.0
+        color: orange
+        file: Big-pot-hand.wav.mp3
+        file_h: null
+        file_v: null
+      - name: cymbal
+        volume: 0.8
+        color: purple
+        file: freesound_community-percussion-snap-103929.wav
+        file_h: null
+        file_v: null
+
+  - name: "Kit D"
+    color_bgr: [220, 220, 40]
+    tracks:
+      - name: kick
+        volume: 1.0
+        color: red
+        file: min_kick_20_F.wav
+        file_h: null
+        file_v: null
+      - name: snare
+        volume: 1.0
+        color: blue
+        file: Snare_Duotone.wav
+        file_h: null
+        file_v: null
+      - name: hihat
+        volume: 0.8
+        color: green
+        file: bongo_high_pitch_hit_yT1.wav
+        file_h: null
+        file_v: null
+      - name: clap
+        volume: 0.9
+        color: yellow
+        file: clap-corridor-01.wav
+        file_h: null
+        file_v: null
+      - name: tom
+        volume: 1.0
+        color: orange
+        file: Big-pot-hand.wav.mp3
+        file_h: null
+        file_v: null
+      - name: cymbal
+        volume: 0.8
+        color: purple
+        file: hardtabla-Open-Na.wav.mp3
         file_h: null
         file_v: null
 
 sounds:
   dir: assets/sounds
-  normalize: false       # RMS-normalize all samples at load time
+  normalize: true       # RMS-normalize all samples at load time
   target_rms_db: -18.0  # target loudness in dBFS; gain is capped at -1 dBFS peak
 
 colors:                        # used by color detector mode

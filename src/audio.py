@@ -156,11 +156,14 @@ class AudioPlayer:
         self._h_sounds: list[pygame.mixer.Sound | None] = []
         self._v_sounds: list[pygame.mixer.Sound | None] = []
         self._profile_sounds: list[tuple[list, list]] = []
+        self._profile_tracks: list[list[dict]] = []   # for per-track volume on switch
+        self._channels: list[pygame.mixer.Channel] = []
 
     def preload_profiles(self, profiles: list[dict]) -> None:
         """Load sounds for every profile at startup. Activates profile 0."""
         self._sound_dir.mkdir(parents=True, exist_ok=True)
         self._profile_sounds = []
+        self._profile_tracks = []
         for profile in profiles:
             h_list: list[pygame.mixer.Sound | None] = []
             v_list: list[pygame.mixer.Sound | None] = []
@@ -169,13 +172,29 @@ class AudioPlayer:
                 h_list.append(h)
                 v_list.append(v)
             self._profile_sounds.append((h_list, v_list))
+            self._profile_tracks.append(profile["tracks"])
+
         if self._profile_sounds:
             self._h_sounds, self._v_sounds = self._profile_sounds[0]
+
+        # Allocate one dedicated channel per track row so each instrument is isolated.
+        # channel.play() cuts any previous hit on that channel — no cross-track interference.
+        n_tracks = max(len(p["tracks"]) for p in profiles)
+        pygame.mixer.set_num_channels(max(pygame.mixer.get_num_channels(), n_tracks))
+        self._channels = [pygame.mixer.Channel(i) for i in range(n_tracks)]
+        for i, ch in enumerate(self._channels):
+            if profiles and i < len(profiles[0]["tracks"]):
+                ch.set_volume(float(profiles[0]["tracks"][i].get("volume", 1.0)))
 
     def switch_profile(self, idx: int) -> None:
         """O(1) profile switch — no I/O. Safe to call from the sequencer thread."""
         if 0 <= idx < len(self._profile_sounds):
             self._h_sounds, self._v_sounds = self._profile_sounds[idx]
+            if idx < len(self._profile_tracks):
+                for i, ch in enumerate(self._channels):
+                    tracks = self._profile_tracks[idx]
+                    if i < len(tracks):
+                        ch.set_volume(float(tracks[i].get("volume", 1.0)))
 
     def _load_track_pair(
         self, track: dict
@@ -226,15 +245,16 @@ class AudioPlayer:
         return pygame.sndarray.make_sound(arr_accent)
 
     def play(self, row: int, orientation: int) -> None:
-        """Play H or V sound for the given row based on tile orientation."""
+        """Play H or V sound for the given row on its dedicated channel."""
         if orientation == HORIZONTAL:
             sounds = self._h_sounds
         elif orientation == VERTICAL:
             sounds = self._v_sounds
         else:
             return
-        if 0 <= row < len(sounds) and sounds[row] is not None:
-            sounds[row].play()
+        if (0 <= row < len(sounds) and sounds[row] is not None
+                and row < len(self._channels)):
+            self._channels[row].play(sounds[row])
 
     def stop_all(self) -> None:
         pygame.mixer.stop()
