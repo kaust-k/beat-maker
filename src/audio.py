@@ -4,8 +4,6 @@ from pathlib import Path
 import numpy as np
 import pygame
 
-from .detector import EMPTY, HORIZONTAL, VERTICAL
-
 SR = 44100
 
 
@@ -140,11 +138,10 @@ _SYNTH_FUNCS = {
 
 class AudioPlayer:
     """
-    Loads or synthesizes two sounds per track row across multiple profiles.
+    Loads or synthesizes one sound per track row across multiple profiles.
 
     Resolution order per track:
-      H sound: file_h → file → synthesize(name)
-      V sound: file_v → file (as accent source) → _make_accent(h_sound)
+      sound: file → synthesize(name)
 
     All profiles are preloaded at startup via preload_profiles(); switching is O(1).
     """
@@ -153,10 +150,9 @@ class AudioPlayer:
         self._sound_dir = Path(sound_dir)
         self._normalize = normalize
         self._target_rms_db = target_rms_db
-        self._h_sounds: list[pygame.mixer.Sound | None] = []
-        self._v_sounds: list[pygame.mixer.Sound | None] = []
-        self._profile_sounds: list[tuple[list, list]] = []
-        self._profile_tracks: list[list[dict]] = []   # for per-track volume on switch
+        self._sounds: list[pygame.mixer.Sound | None] = []
+        self._profile_sounds: list[list] = []
+        self._profile_tracks: list[list[dict]] = []
         self._channels: list[pygame.mixer.Channel] = []
 
     def preload_profiles(self, profiles: list[dict]) -> None:
@@ -165,17 +161,14 @@ class AudioPlayer:
         self._profile_sounds = []
         self._profile_tracks = []
         for profile in profiles:
-            h_list: list[pygame.mixer.Sound | None] = []
-            v_list: list[pygame.mixer.Sound | None] = []
+            sounds_list: list[pygame.mixer.Sound | None] = []
             for track in profile["tracks"]:
-                h, v = self._load_track_pair(track)
-                h_list.append(h)
-                v_list.append(v)
-            self._profile_sounds.append((h_list, v_list))
+                sounds_list.append(self._load_track(track))
+            self._profile_sounds.append(sounds_list)
             self._profile_tracks.append(profile["tracks"])
 
         if self._profile_sounds:
-            self._h_sounds, self._v_sounds = self._profile_sounds[0]
+            self._sounds = self._profile_sounds[0]
 
         # Allocate one dedicated channel per track row so each instrument is isolated.
         # channel.play() cuts any previous hit on that channel — no cross-track interference.
@@ -189,43 +182,20 @@ class AudioPlayer:
     def switch_profile(self, idx: int) -> None:
         """O(1) profile switch — no I/O. Safe to call from the sequencer thread."""
         if 0 <= idx < len(self._profile_sounds):
-            self._h_sounds, self._v_sounds = self._profile_sounds[idx]
+            self._sounds = self._profile_sounds[idx]
             if idx < len(self._profile_tracks):
                 for i, ch in enumerate(self._channels):
                     tracks = self._profile_tracks[idx]
                     if i < len(tracks):
                         ch.set_volume(float(tracks[i].get("volume", 1.0)))
 
-    def _load_track_pair(
-        self, track: dict
-    ) -> tuple["pygame.mixer.Sound", "pygame.mixer.Sound"]:
+    def _load_track(self, track: dict) -> "pygame.mixer.Sound":
         name = track["name"]
-        file_h = track.get("file_h")
-        file_v = track.get("file_v")
         file_base = track.get("file")
-
-        # --- H sound: file_h → file → synthesize ---
-        if file_h:
-            path = self._sound_dir / file_h
-            h_sound = self._load(path) if path.exists() else self._synthesize(name)
-        elif file_base:
+        if file_base:
             path = self._sound_dir / file_base
-            h_sound = self._load(path) if path.exists() else self._synthesize(name)
-        else:
-            h_sound = self._synthesize(name)
-
-        # --- V sound: file_v → file (accent) → _make_accent(h_sound) ---
-        if file_v:
-            path = self._sound_dir / file_v
-            v_sound = self._load(path) if path.exists() else self._make_accent(h_sound)
-        elif file_base:
-            path = self._sound_dir / file_base
-            base_sound = self._load(path) if path.exists() else h_sound
-            v_sound = self._make_accent(base_sound)
-        else:
-            v_sound = self._make_accent(h_sound)
-
-        return h_sound, v_sound
+            return self._load(path) if path.exists() else self._synthesize(name)
+        return self._synthesize(name)
 
     def _load(self, path: Path) -> "pygame.mixer.Sound":
         """Load a file through miniaudio with optional RMS normalization."""
@@ -238,23 +208,11 @@ class AudioPlayer:
             _save_wav(cached, _to_stereo_int16(synth_fn()))
         return self._load(cached)
 
-    def _make_accent(self, h_sound: "pygame.mixer.Sound") -> "pygame.mixer.Sound":
-        """85% volume variant of h_sound for the vertical/accent hit."""
-        arr = pygame.sndarray.array(h_sound)
-        arr_accent = (arr * 0.85).astype(arr.dtype)
-        return pygame.sndarray.make_sound(arr_accent)
-
-    def play(self, row: int, orientation: int) -> None:
-        """Play H or V sound for the given row on its dedicated channel."""
-        if orientation == HORIZONTAL:
-            sounds = self._h_sounds
-        elif orientation == VERTICAL:
-            sounds = self._v_sounds
-        else:
-            return
-        if (0 <= row < len(sounds) and sounds[row] is not None
+    def play(self, row: int) -> None:
+        """Play the sound for the given row on its dedicated channel."""
+        if (0 <= row < len(self._sounds) and self._sounds[row] is not None
                 and row < len(self._channels)):
-            self._channels[row].play(sounds[row])
+            self._channels[row].play(self._sounds[row])
 
     def stop_all(self) -> None:
         pygame.mixer.stop()

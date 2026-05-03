@@ -63,6 +63,6 @@ class BeatSequencer:
 
     def _fire(self, col: int) -> None:
         snap = self.grid_state.snapshot()  # int8 array
-        for row, orientation in enumerate(snap[:, col]):
-            if orientation != EMPTY:
-                self.audio.play(row, int(orientation))
+        for row, state in enumerate(snap[:, col]):
+            if state != EMPTY:
+                self.audio.play(row)

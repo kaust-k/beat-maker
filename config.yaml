@@ -6,8 +6,6 @@ tempo_bpm: 180.0
 camera_id: 1
 camera_rotate: 180   # degrees to rotate each frame: 0, 90, 180, 270
 
-detector: "orientation"   # "color" | "orientation"
-
 display:
   cell_size: 80  # pixels per cell in warped view
 
@@ -16,11 +14,8 @@ detection:
   empty_threshold: 0.05  # coverage <= this -> tile absent
   min_present_frames: 4  # consecutive frames tile must be detected before being accepted
   min_absent_frames: 3   # consecutive frames tile must be absent before being cleared
-  # orientation-mode only:
   sat_threshold: 40        # HSV S-channel delta above background to identify a tile (after 'b' capture)
   min_area_ratio: 0.10     # minimum contour area / cell area to count as tile
-  h_ratio_threshold: 1.25  # bounding rect w/h above this -> HORIZONTAL
-  v_ratio_threshold: 0.80  # bounding rect w/h below this -> VERTICAL
 
 selector:
   rows: 1   # height of profile selector strip (in grid cells), placed above the beat grid
@@ -30,226 +25,113 @@ profiles:
     color_bgr: [40, 40, 220]   # BGR color for selector overlay (red)
     tracks:
       - name: kick
-        volume: 1.0      # per-track gain 0.0–1.0; tune this to balance the mix
-        color: red
+        volume: 1.0
         file: Kick_Edgy.wav
-        file_h: null
-        file_v: null
       - name: snare
         volume: 1.0
-        color: blue
         file: Snare_Analog.wav
-        file_h: null
-        file_v: null
       - name: hihat
         volume: 0.8
-        color: green
         file: Hats_Massamolla.wav
-        file_h: null
-        file_v: null
       - name: clap
         volume: 0.9
-        color: yellow
         file: Clap_Liquid.wav
-        file_h: null
-        file_v: null
       - name: tom
         volume: 1.0
-        color: orange
         file: Perc_Tambo.wav
-        file_h: null
-        file_v: null
       - name: cymbal
         volume: 0.8
-        color: purple
         file: bongos-bongo-8.wav.mp3
-        file_h: null
-        file_v: null
 
   - name: "Kit B"
     color_bgr: [40, 220, 40]   # BGR color for selector overlay (green)
     tracks:
       - name: kick
         volume: 1.0
-        color: red
         file: Kick_Quake.wav
-        file_h: null
-        file_v: null
       - name: snare
         volume: 1.0
-        color: blue
         file: Snare_Piccolo.wav
-        file_h: null
-        file_v: null
       - name: hihat
         volume: 0.8
-        color: green
         file: Hats_Sweet.wav
-        file_h: null
-        file_v: null
       - name: clap
         volume: 0.95
-        color: yellow
         file: clap-room-24.wav
-        file_h: null
-        file_v: null
       - name: tom
         volume: 1.0
-        color: orange
         file: Big-pot-hand.wav.mp3
-        file_h: null
-        file_v: null
       - name: cymbal
         volume: 1.0
-        color: purple
         file: SeedShellShaker7.wav
-        file_h: null
-        file_v: null
 
   - name: "Kit C"
     color_bgr: [40, 220, 220]
     tracks:
       - name: kick
         volume: 1.0
-        color: red
         file: min_kick_20_F.wav
-        file_h: null
-        file_v: null
       - name: snare
         volume: 1.0
-        color: blue
         file: Snare_Duotone.wav
-        file_h: null
-        file_v: null
       - name: hihat
         volume: 0.85
-        color: green
         file: Hats_Zippo.wav
-        file_h: null
-        file_v: null
       - name: clap
         volume: 0.9
-        color: yellow
         file: clap-corridor-01.wav
-        file_h: null
-        file_v: null
       - name: tom
         volume: 1.0
-        color: orange
         file: Big-pot-hand.wav.mp3
-        file_h: null
-        file_v: null
       - name: cymbal
         volume: 1.0
-        color: purple
         file: freesound_community-percussion-snap-103929.wav
-        file_h: null
-        file_v: null
 
   - name: "Kit D"
     color_bgr: [220, 220, 40]
     tracks:
       - name: kick
         volume: 1.0
-        color: red
         file: min_kick_20_F.wav
-        file_h: null
-        file_v: null
       - name: snare
         volume: 1.0
-        color: blue
         file: Snare_Duotone.wav
-        file_h: null
-        file_v: null
       - name: hihat
         volume: 1.0
-        color: green
         file: bongo_high_pitch_hit_yT1.wav
-        file_h: null
-        file_v: null
       - name: clap
         volume: 1.0
-        color: yellow
         file: clap-corridor-01.wav
-        file_h: null
-        file_v: null
       - name: tom
         volume: 1.0
-        color: orange
         file: Big-pot-hand.wav.mp3
-        file_h: null
-        file_v: null
       - name: cymbal
         volume: 1.0
-        color: purple
         file: hardtabla-Open-Na.wav.mp3
-        file_h: null
-        file_v: null
 
   - name: "Kit E"
     color_bgr: [220, 220, 40]
     tracks:
       - name: kick
         volume: 1.0
-        color: red
         file: min_kick_20_F.wav
-        file_h: null
-        file_v: null
       - name: snare
         volume: 1.0
-        color: blue
         file: Snare_Duotone.wav
-        file_h: null
-        file_v: null
       - name: hihat
         volume: 1.0
-        color: green
         file: ROLAND_SPD-20_PERCTABLA-9.wav.mp3
-        file_h: null
-        file_v: null
       - name: clap
         volume: 1.0
-        color: yellow
         file: clap-corridor-01.wav
-        file_h: null
-        file_v: null
       - name: tom
         volume: 1.0
-        color: orange
         file: Big-pot-hand.wav.mp3
-        file_h: null
-        file_v: null
       - name: cymbal
         volume: 1.0
-        color: purple
         file: hardtabla-Open-Na.wav.mp3
-        file_h: null
-        file_v: null
 
 sounds:
   dir: assets/sounds
   normalize: true       # RMS-normalize all samples at load time
   target_rms_db: -18.0  # target loudness in dBFS; gain is capped at -1 dBFS peak
-
-colors:                        # used by color detector mode
-  red:
-    lower: [0, 100, 100]
-    upper: [10, 255, 255]
-  red_wrap:                    # red wraps around H=0/179 in OpenCV HSV
-    lower: [160, 100, 100]
-    upper: [179, 255, 255]
-  blue:
-    lower: [100, 80, 80]
-    upper: [130, 255, 255]
-  green:
-    lower: [40, 60, 60]
-    upper: [80, 255, 255]
-  yellow:
-    lower: [20, 100, 100]
-    upper: [35, 255, 255]
-  orange:
-    lower: [10, 100, 100]
-    upper: [20, 255, 255]
-  purple:
-    lower: [130, 60, 60]
-    upper: [160, 255, 255]

@@ -18,8 +18,8 @@ import yaml
 from .audio import AudioPlayer
 from .camera import CameraThread, LinuxCamera
 from .detector import (
-    EMPTY, HORIZONTAL, VERTICAL,
-    ColorTileDetector, GridState, OrientationTileDetector, SelectorDetector,
+    EMPTY,
+    GridState, PresenceTileDetector, SelectorDetector,
 )
 from .grid import CORNER_ORDER, GridMapper
 from .profiles import ProfileManager
@@ -46,25 +46,11 @@ TRACK_COLORS_BGR = [
     (40,  140, 220),
     (200, 40,  200),
 ]
-HORIZONTAL_COLOR_BGR = (40, 200, 40)
-VERTICAL_COLOR_BGR   = (200, 40, 200)
 
 
 def _load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
-
-
-def _build_color_detector(
-    tracks: list[dict],
-    color_defs: dict,
-    rows: int,
-    cols: int,
-    cell_size: int,
-    tile_threshold: float,
-) -> ColorTileDetector:
-    return ColorTileDetector(tracks, color_defs, rows, cols, cell_size,
-                             tile_threshold=tile_threshold)
 
 
 def _draw_selector_overlay(
@@ -122,7 +108,6 @@ def _draw_grid_overlay(
     sequencer: BeatSequencer,
     cell_size: int,
     track_names: list[str],
-    detector_mode: str,
     y_offset: int = 0,
 ) -> np.ndarray:
     overlay = warped.copy()
@@ -134,15 +119,9 @@ def _draw_grid_overlay(
     cell_layer = warped.copy()
     for r in range(rows):
         for c in range(cols):
-            orientation = snap[r, c]
-            if orientation == EMPTY:
+            if snap[r, c] == EMPTY:
                 continue
-            if detector_mode == "color":
-                color = TRACK_COLORS_BGR[r % len(TRACK_COLORS_BGR)]
-            elif orientation == HORIZONTAL:
-                color = HORIZONTAL_COLOR_BGR
-            else:
-                color = VERTICAL_COLOR_BGR
+            color = TRACK_COLORS_BGR[r % len(TRACK_COLORS_BGR)]
             cv2.rectangle(
                 cell_layer,
                 (c * cs, r * cs + y_offset),
@@ -204,7 +183,6 @@ def _draw_calibration_overlay(
 def _draw_hud(
     frame: np.ndarray,
     sequencer: BeatSequencer,
-    det_mode: str,
     profile_name: str,
     pending_name: str | None,
     bg_ok: bool = False,
@@ -218,7 +196,7 @@ def _draw_hud(
         color  = (255, 255, 0)
     pending_str = f" →{pending_name}" if pending_name else ""
     bg_str = "BG:ok" if bg_ok else "BG:--"
-    cv2.putText(frame, f"[{det_mode}] {profile_name}{pending_str}  {status}  {bg_str}",
+    cv2.putText(frame, f"{profile_name}{pending_str}  {status}  {bg_str}",
                 (10, h - 38), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, "q:quit  c:calibrate  b:background  +/-:tempo  space:pause  r:reset",
                 (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
@@ -234,7 +212,6 @@ def run() -> None:
     rows         = cfg["grid"]["rows"]
     cols         = cfg["grid"]["cols"]
     cell_size    = cfg["display"]["cell_size"]
-    det_mode     = cfg.get("detector", "orientation")
     det_cfg      = cfg["detection"]
     profiles     = cfg["profiles"]
     selector_rows = cfg.get("selector", {}).get("rows", 1)
@@ -256,12 +233,12 @@ def run() -> None:
     )
     audio.preload_profiles(profiles)
     n_tracks = len(profiles[0]["tracks"])
-    print(f"Loaded {len(profiles)} profile(s) ({n_tracks} tracks each, {det_mode} detector).")
+    print(f"Loaded {len(profiles)} profile(s) ({n_tracks} tracks each).")
 
     # Profile manager
     profile_manager = ProfileManager(profiles)
 
-    # Grid state and beat detector (rebuilt on profile switch in color mode)
+    # Grid state and beat detector
     grid_state = GridState(
         rows, cols,
         tile_threshold=det_cfg["tile_threshold"],
@@ -279,18 +256,11 @@ def run() -> None:
         bs = mapper.baseline_s
         return bs[:selector_rows] if bs is not None and selector_rows > 0 else None
 
-    def _make_beat_detector(active_tracks: list[dict]):
-        if det_mode == "color":
-            return _build_color_detector(
-                active_tracks, cfg["colors"], rows, cols, cell_size,
-                tile_threshold=det_cfg["tile_threshold"],
-            )
-        return OrientationTileDetector(
+    def _make_beat_detector():
+        return PresenceTileDetector(
             rows, cols, cell_size,
             sat_threshold=det_cfg.get("sat_threshold", 40),
             min_area_ratio=det_cfg.get("min_area_ratio", 0.10),
-            h_ratio_threshold=det_cfg.get("h_ratio_threshold", 1.25),
-            v_ratio_threshold=det_cfg.get("v_ratio_threshold", 0.80),
             baseline_s=_beat_baseline(),
         )
 
@@ -318,7 +288,7 @@ def run() -> None:
     else:
         print("No calibration found (or dimensions changed). Press 'c' to calibrate.")
 
-    detector = _make_beat_detector(profiles[0]["tracks"])
+    detector = _make_beat_detector()
     track_names = [t["name"] for t in profiles[0]["tracks"]]
     last_profile_idx = 0
 
@@ -389,19 +359,19 @@ def run() -> None:
 
                     # Beat grid detection (slice below selector strip)
                     beat_warped = warped[y_off:] if y_off > 0 else warped
-                    orientations, areas = detector.detect(beat_warped)
-                    grid_state.update(orientations, areas)
+                    _, areas = detector.detect(beat_warped)
+                    grid_state.update(areas)
 
                     # Rebuild detector / names if profile switched
                     current_idx = profile_manager.active_index
                     if current_idx != last_profile_idx:
                         last_profile_idx = current_idx
                         track_names = [t["name"] for t in profiles[current_idx]["tracks"]]
-                        detector = _make_beat_detector(profiles[current_idx]["tracks"])
+                        detector = _make_beat_detector()
 
                     right = _draw_grid_overlay(
                         warped, grid_state, sequencer, cell_size,
-                        track_names, det_mode, y_offset=y_off,
+                        track_names, y_offset=y_off,
                     )
                     if selector_rows > 0:
                         right = _draw_selector_overlay(
@@ -418,7 +388,7 @@ def run() -> None:
                 active_profile = profiles[profile_manager.active_index]
                 pending_idx = profile_manager.pending_index
                 pending_name = profiles[pending_idx]["name"] if pending_idx is not None else None
-                _draw_hud(left, sequencer, det_mode, active_profile["name"], pending_name,
+                _draw_hud(left, sequencer, active_profile["name"], pending_name,
                           bg_ok=mapper.baseline_s is not None)
                 cv2.imshow(WINDOW_NAME, np.hstack([left, right]))
                 key = cv2.waitKey(1) & 0xFF
@@ -445,7 +415,7 @@ def run() -> None:
                 if mapper.is_calibrated:
                     if last_frame is not None:
                         mapper.capture_background(last_frame)
-                        detector = _make_beat_detector(profiles[profile_manager.active_index]["tracks"])
+                        detector = _make_beat_detector()
                         selector_detector = _make_selector_detector()
                         print("Background captured. Detection is now lighting-adaptive.")
                     else:
