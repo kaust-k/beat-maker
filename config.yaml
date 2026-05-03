@@ -4,6 +4,7 @@ grid:
 
 tempo_bpm: 180.0
 camera_id: 1
+camera_rotate: 180   # degrees to rotate each frame: 0, 90, 180, 270
 
 detector: "orientation"   # "color" | "orientation"
 
@@ -31,7 +32,7 @@ profiles:
       - name: kick
         volume: 1.0      # per-track gain 0.0–1.0; tune this to balance the mix
         color: red
-        file: Kick_Fistpump.wav
+        file: Kick_Edgy.wav
         file_h: null
         file_v: null
       - name: snare
@@ -61,7 +62,7 @@ profiles:
       - name: cymbal
         volume: 0.8
         color: purple
-        file: bongo_high_pitch_hit_yT1.wav
+        file: bongos-bongo-8.wav.mp3
         file_h: null
         file_v: null
 
@@ -164,6 +165,46 @@ profiles:
         volume: 1.0
         color: green
         file: bongo_high_pitch_hit_yT1.wav
+        file_h: null
+        file_v: null
+      - name: clap
+        volume: 1.0
+        color: yellow
+        file: clap-corridor-01.wav
+        file_h: null
+        file_v: null
+      - name: tom
+        volume: 1.0
+        color: orange
+        file: Big-pot-hand.wav.mp3
+        file_h: null
+        file_v: null
+      - name: cymbal
+        volume: 1.0
+        color: purple
+        file: hardtabla-Open-Na.wav.mp3
+        file_h: null
+        file_v: null
+
+  - name: "Kit E"
+    color_bgr: [220, 220, 40]
+    tracks:
+      - name: kick
+        volume: 1.0
+        color: red
+        file: min_kick_20_F.wav
+        file_h: null
+        file_v: null
+      - name: snare
+        volume: 1.0
+        color: blue
+        file: Snare_Duotone.wav
+        file_h: null
+        file_v: null
+      - name: hihat
+        volume: 1.0
+        color: green
+        file: ROLAND_SPD-20_PERCTABLA-9.wav.mp3
         file_h: null
         file_v: null
       - name: clap

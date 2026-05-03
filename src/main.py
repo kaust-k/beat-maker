@@ -308,7 +308,7 @@ def run() -> None:
         print(f"ERROR: Cannot open camera {cfg['camera_id']}.")
         pygame.quit()
         sys.exit(1)
-    cam_thread = CameraThread(camera)
+    cam_thread = CameraThread(camera, rotate_degrees=cfg.get("camera_rotate", 0))
     cam_thread.start()
 
     # Grid mapper / calibration — must be created before detector factories are called

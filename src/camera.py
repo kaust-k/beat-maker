@@ -54,11 +54,19 @@ class LinuxCamera(BaseCameraCapture):
             self._cap = None
 
 
+_ROTATE_CODES = {
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
+
+
 class CameraThread:
     """Reads frames in a daemon thread; always serves the freshest frame."""
 
-    def __init__(self, camera: BaseCameraCapture):
+    def __init__(self, camera: BaseCameraCapture, rotate_degrees: int = 0):
         self._camera = camera
+        self._rotate_code = _ROTATE_CODES.get(rotate_degrees % 360)
         self.frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=2)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -75,6 +83,8 @@ class CameraThread:
             ok, frame = self._camera.read_frame()
             if not ok or frame is None:
                 continue
+            if self._rotate_code is not None:
+                frame = cv2.rotate(frame, self._rotate_code)
             if self.frame_queue.full():
                 try:
                     self.frame_queue.get_nowait()
