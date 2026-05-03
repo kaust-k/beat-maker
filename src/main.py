@@ -27,7 +27,7 @@ from .sequencer import BeatSequencer
 
 CONFIG_PATH = "config.yaml"
 CALIB_PATH  = "calibration.json"
-WINDOW_NAME = "Tembo Beat Maker"
+WINDOW_NAME = "Beat Maker"
 
 # Per-profile and per-row overlay colors (BGR)
 PROFILE_COLORS_BGR = [
@@ -393,6 +393,11 @@ def run() -> None:
                 cv2.imshow(WINDOW_NAME, np.hstack([left, right]))
                 key = cv2.waitKey(1) & 0xFF
 
+            try:
+                if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            except cv2.error:
+                break
             if key == ord("q"):
                 break
             elif key == ord("c"):
