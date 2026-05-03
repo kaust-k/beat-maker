@@ -25,8 +25,9 @@ from .grid import CORNER_ORDER, GridMapper
 from .profiles import ProfileManager
 from .sequencer import BeatSequencer
 
-CONFIG_PATH = "config.yaml"
-CALIB_PATH  = "calibration.json"
+CONFIG_PATH       = "config.yaml"
+LOCAL_CONFIG_PATH = "config.local.yaml"
+CALIB_PATH        = "calibration.json"
 WINDOW_NAME = "Beat Maker"
 
 # Per-profile and per-row overlay colors (BGR)
@@ -51,6 +52,16 @@ TRACK_COLORS_BGR = [
 def _load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = base.copy()
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
 
 
 def _draw_selector_overlay(
@@ -209,6 +220,9 @@ def run() -> None:
         sys.exit(1)
 
     cfg = _load_config(CONFIG_PATH)
+    local_path = Path(LOCAL_CONFIG_PATH)
+    if local_path.exists():
+        cfg = _deep_merge(cfg, _load_config(LOCAL_CONFIG_PATH))
     rows         = cfg["grid"]["rows"]
     cols         = cfg["grid"]["cols"]
     cell_size    = cfg["display"]["cell_size"]

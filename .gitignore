@@ -1,6 +1,7 @@
 venv/
 assets/sounds/
 calibration.json
+config.local.yaml
 __pycache__/
 *.pyc
 .DS_Store
