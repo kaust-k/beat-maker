@@ -6,9 +6,22 @@ A camera-based hardware step sequencer. Place colored tiles on a physical grid, 
 
 The physical grid acts as an 8-beat × 6-track step sequencer. Each column is a beat, each row is an instrument (kick, snare, hi-hat, clap, tom, cymbal). Placing a tile in a cell activates that sound on that beat. A profile selector strip at the top of the grid lets you switch between drum kits by placing a tile in the corresponding slot.
 
+The first row acts as a profile selector — each profile maps to a preset combination of beats, so switching patterns is as simple as changing the top row.
+
 Detection uses HSV saturation thresholding (color-agnostic) with per-cell background calibration and temporal debouncing for reliable, flicker-free detection under varying lighting.
 
 > Currently only tested on Ubuntu.
+
+## Demo
+<p align="center">
+  <img src="./assets/media/beat_maker.jpg" alt="Beat Maker" width="640"/>
+</p>
+<p align="center">
+  <video width="640" controls>
+    <source src="./assets/media/recording.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+</p>
 
 ## Requirements
 
@@ -18,7 +31,7 @@ Detection uses HSV saturation thresholding (color-agnostic) with per-cell backgr
 
 **Tips:**
 - Use bright-colored tiles in low-light environments and dark-colored tiles under bright lighting for more reliable detection.
-- Place WAV or MP3 sample files in `assets/sounds/` and reference them in `config.yaml` under each track's `file` key. [99sounds.org](https://99sounds.org/) is a good free source for drum samples.
+- Place WAV or MP3 sample files in `assets/sounds/` and reference them in `config.local.yaml` under each track's `file` key. [99sounds.org](https://99sounds.org/) is a good free source for drum samples.
 
 ```bash
 pip install -r requirements.txt
